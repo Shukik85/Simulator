@@ -1,0 +1,1 @@
+cycle_id,mode,duration_sec,payload_kg,soil_type,operator_aggressiveness,min_pressure_bar,max_pressure_bar,mean_pressure_bar,min_temperature_C,max_temperature_C,mean_pump_speed_rpm,max_pump_speed_rpm,timestamp
