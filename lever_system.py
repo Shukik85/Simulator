@@ -379,8 +379,14 @@ class LeverSystemDynamics:
 # Основной интерфейс
 # =============================================================================
 class LeverSystem:
-    """
-    Упрощённый интерфейс для анализа рычажной системы.
+    """Упрощённый интерфейс для анализа рычажной системы.
+
+    Дополнено для интеграции с `hydrosim.mechanics.kinematics` и `hydrosim.physics.dynamics`:
+    - `solve_angle(cyl_length_m)` возвращает (theta_rad, dtheta_dl) в единицах (рад, рад/м).
+    - `cylinder_force_to_moment(cyl_length_m, force_N)` возвращает момент M (Н·м).
+
+    Внутренний solver в исходной реализации принимает длину в мм,
+    поэтому публичные методы для симулятора принимают метры и конвертируют их.
     """
 
     def __init__(self) -> None:
@@ -397,6 +403,22 @@ class LeverSystem:
             desired_a_side=+1,
         )
         self.dyn = LeverSystemDynamics(self.geom)
+
+    def solve_angle(self, cyl_length_m: float) -> Tuple[float, float]:
+        """Совместимый метод: длина цилиндра (м) -> (θ, dθ/dl).
+
+        θ соответствует `Transmission.theta_BV`.
+        dθ/dl соответствует `Transmission.dtheta_BV_dl_OA` (рад/м).
+        """
+        state = self.geom.solve(l_OA_mm=m_to_mm(float(cyl_length_m)))
+        tr = self.dyn.transmission(state)
+        return float(wrap_angle_pi(tr.theta_BV)), float(tr.dtheta_BV_dl_OA)
+
+    def cylinder_force_to_moment(self, cyl_length_m: float, force_N: float) -> float:
+        """Совместимый метод: сила в цилиндре (Н) -> момент (Н·м)."""
+        state = self.geom.solve(l_OA_mm=m_to_mm(float(cyl_length_m)))
+        res = self.dyn.developed_moment(state, float(force_N))
+        return float(res.M_V_developed)
 
     def analyze(self, l_OA_mm: float, F_OA_N: float, M_V_Nm: Optional[float] = None) -> AnalysisResult:
         state = self.geom.solve(l_OA_mm)
