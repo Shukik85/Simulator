@@ -1,12 +1,13 @@
 """Конфиги гидросимулятора.
 
-ВНИМАНИЕ: в репозитории уже существует файл `hydrosim/config.py`.
-Создание пакета `hydrosim.config` может изменить семантику импорта `hydrosim.config`.
+В репозитории исторически есть модуль `hydrosim/config.py`.
+Одновременно нужен пакет `hydrosim.config.*` для разнесённых конфигов.
 
-Чтобы не ломать существующий код, этот пакет:
-- предоставляет новые механические конфиги в `hydrosim.config.mechanics`;
-- при наличии `hydrosim/config.py` загружает его как legacy-модуль и реэкспортирует
-  основные символы (если они существуют).
+Чтобы не ломать старый код:
+- новые механические конфиги доступны в `hydrosim.config.mechanics`;
+- если существует `hydrosim/config.py`, он загружается как legacy-модуль;
+- legacy-символы реэкспортируются, но при конфликте имён создаётся алиас
+  `Legacy<Имя>` (например, `LegacyMechanicsConfig`).
 """
 
 from __future__ import annotations
@@ -39,6 +40,8 @@ def _load_legacy_config() -> Any | None:
 
 _legacy = _load_legacy_config()
 
+_legacy_exported: list[str] = []
+
 if _legacy is not None:
     for _name in (
         "FluidConfig",
@@ -56,8 +59,18 @@ if _legacy is not None:
         "SensorConfig",
         "SystemConfig",
     ):
-        if hasattr(_legacy, _name):
-            globals()[_name] = getattr(_legacy, _name)
+        if not hasattr(_legacy, _name):
+            continue
+
+        _obj = getattr(_legacy, _name)
+
+        if _name in globals():
+            alias = f"Legacy{_name}"
+            globals()[alias] = _obj
+            _legacy_exported.append(alias)
+        else:
+            globals()[_name] = _obj
+            _legacy_exported.append(_name)
 
 
 __all__ = [
@@ -65,4 +78,5 @@ __all__ = [
     "CylinderGeometry",
     "MechanicsConfig",
     "DEFAULT_MECHANICS_CONFIG",
+    *_legacy_exported,
 ]
