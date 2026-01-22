@@ -61,6 +61,11 @@ class CylinderLinkMechanism:
     - Найти: угол ∠AOB и, следовательно, θ
     - Используем закон косинусов:
       AB² = OA² + OB² - 2·OA·OB·cos(∠AOB)
+
+    Важно:
+    - У треугольника обычно есть 2 решения ("локоть вверх/вниз").
+    - Для стабильности (и чтобы тесты были однозначны) выбираем решение с
+      минимальным |θ| после нормализации в диапазон [-π, π].
     """
 
     def __init__(self, att: CylinderAttachment) -> None:
@@ -72,6 +77,10 @@ class CylinderLinkMechanism:
     @property
     def attachment(self) -> CylinderAttachment:
         return self._att
+
+    @staticmethod
+    def _wrap_pi(angle: float) -> float:
+        return float((angle + np.pi) % (2.0 * np.pi) - np.pi)
 
     def solve_angle(self, cyl_length_m: float) -> Tuple[float, float]:
         """По текущей длине цилиндра вычислить угол звена и производную dθ/dl.
@@ -104,18 +113,29 @@ class CylinderLinkMechanism:
 
         aob = float(np.arccos(cos_aob))
 
-        # θ = angle(OA) + ∠AOB - angle(OB_local)
-        theta = angle_OA + aob - angle_OB_local
+        # Два решения: angle_OB_global = angle_OA ± ∠AOB
+        theta_plus = angle_OA + aob - angle_OB_local
+        theta_minus = angle_OA - aob - angle_OB_local
 
-        # dθ/dl = d(∠AOB)/d(AB)
+        theta_plus_n = self._wrap_pi(theta_plus)
+        theta_minus_n = self._wrap_pi(theta_minus)
+
+        if abs(theta_minus_n) <= abs(theta_plus_n):
+            theta = theta_minus_n
+            sign = -1.0
+        else:
+            theta = theta_plus_n
+            sign = 1.0
+
+        # dθ/dl = ± d(∠AOB)/d(AB)
         # cos = (OA^2 + OB^2 - AB^2)/(2 OA OB)
         # dcos/dAB = -AB/(OA OB)
-        # d(arccos(cos))/dAB = - dcos/dAB / sin(∠AOB) = AB/(OA OB sin(∠AOB))
+        # d(arccos(cos))/dAB = AB/(OA OB sin(∠AOB))
         sin_aob = float(np.sqrt(max(0.0, 1.0 - cos_aob * cos_aob)))
         if sin_aob < 1e-6:
             dtheta_dl = 0.0
         else:
-            dtheta_dl = AB / (OA * OB * sin_aob)
+            dtheta_dl = sign * (AB / (OA * OB * sin_aob))
 
         return float(theta), float(dtheta_dl)
 
