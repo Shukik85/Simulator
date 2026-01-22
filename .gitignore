@@ -1,1 +1,74 @@
-/.venv
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Packaging / build
+build/
+dist/
+.eggs/
+*.egg-info/
+*.egg
+pip-wheel-metadata/
+
+# Testing / coverage
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+.tox/
+.nox/
+
+# Lint / format / type-check caches
+.ruff_cache/
+.mypy_cache/
+.pyright/
+
+# IDEs
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Notebooks
+.ipynb_checkpoints/
+
+# Logs
+*.log
+
+# Local env files (never commit secrets)
+.env
+.env.*
+!.env.example
+
+# Data / ML artifacts (usually large / generated)
+*.h5
+*.hdf5
+*.pkl
+*.pickle
+*.npz
+*.npy
+*.parquet
+*.joblib
+*.onnx
+*.pt
+*.pth
+*.ckpt
+
+# Local docs checkout (design repo clone)
+hydrosim-docs/
+
+# Temporary / output folders
+out/
+outputs/
+results/
+tmp/
+temp/
