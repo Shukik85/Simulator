@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import sys
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
 from typing import Any
@@ -25,6 +26,14 @@ from .mechanics import (  # noqa: F401
 
 
 def _load_legacy_config() -> Any | None:
+    """Load legacy module `hydrosim/config.py`.
+
+    NOTE:
+    - We must register the module in sys.modules *before* exec_module.
+      Python 3.14 dataclasses may access sys.modules[cls.__module__] during
+      class processing; without registration this can crash test collection.
+    """
+
     legacy_path = Path(__file__).resolve().parents[1] / "config.py"
     if not legacy_path.exists():
         return None
@@ -34,6 +43,7 @@ def _load_legacy_config() -> Any | None:
         return None
 
     module = module_from_spec(spec)
+    sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
 
