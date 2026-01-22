@@ -150,3 +150,102 @@ class ExcavatorKinematics:
 
     def __repr__(self) -> str:
         return "ExcavatorKinematics()"
+
+
+class ExcavatorKinematicsStepper:
+    """Шаговый решатель кинематики с памятью веток (branch_prev).
+
+    Назначение:
+    - Устойчивость к изменению ориентации родительских звеньев.
+    - Устранение случайных флипов между зеркальными решениями.
+
+    Важно:
+    - Для boom/arm используется `CylinderLinkMechanism.solve_angle_with_branch()`.
+    - Для bucket используется `solve_angle_with_branch()` если он есть у bucket_lever;
+      иначе используется обычный `solve_angle()` (без памяти).
+    """
+
+    def __init__(
+        self,
+        kin: ExcavatorKinematics,
+        *,
+        boom_branch_prev: int = 1,
+        arm_branch_prev: int = 1,
+        bucket_branch_prev: int = 1,
+    ) -> None:
+        self._kin = kin
+        self._boom_branch_prev = 1 if boom_branch_prev >= 0 else -1
+        self._arm_branch_prev = 1 if arm_branch_prev >= 0 else -1
+        self._bucket_branch_prev = 1 if bucket_branch_prev >= 0 else -1
+
+    @property
+    def branches(self) -> Tuple[int, int, int]:
+        return (self._boom_branch_prev, self._arm_branch_prev, self._bucket_branch_prev)
+
+    def forward(
+        self,
+        boom_cyl_length_m: float,
+        arm_cyl_length_m: float,
+        bucket_cyl_length_m: float,
+        swing_angle_rad: float = 0.0,
+    ) -> ExcavatorKinematicState:
+        boom_mech = self._kin._boom_mech
+        arm_mech = self._kin._arm_mech
+        bucket_lever = self._kin._bucket_lever
+
+        theta_boom, _dtheta, boom_branch = boom_mech.solve_angle_with_branch(
+            boom_cyl_length_m,
+            branch_prev=self._boom_branch_prev,
+        )
+        self._boom_branch_prev = int(boom_branch)
+
+        boom_pivot = tuple(boom_mech.attachment.pivot_point)
+        boom_pose = _link_pose(
+            pivot=boom_pivot,
+            theta=theta_boom,
+            length=self._kin._mech.boom_link.length_m,
+            com_offset=self._kin._mech.boom_link.com_offset_m,
+        )
+
+        theta_arm, _dtheta, arm_branch = arm_mech.solve_angle_with_branch(
+            arm_cyl_length_m,
+            branch_prev=self._arm_branch_prev,
+        )
+        self._arm_branch_prev = int(arm_branch)
+
+        arm_pose = _link_pose(
+            pivot=boom_pose.tip_xy,
+            theta=theta_arm,
+            length=self._kin._mech.arm_link.length_m,
+            com_offset=self._kin._mech.arm_link.com_offset_m,
+        )
+
+        if hasattr(bucket_lever, "solve_angle_with_branch"):
+            theta_bucket, _dtheta, bucket_branch = bucket_lever.solve_angle_with_branch(
+                bucket_cyl_length_m,
+                branch_prev=self._bucket_branch_prev,
+            )
+            self._bucket_branch_prev = int(bucket_branch)
+        else:
+            theta_bucket = _theta_from_solver_result(bucket_lever.solve_angle(bucket_cyl_length_m))
+
+        bucket_pose = _link_pose(
+            pivot=arm_pose.tip_xy,
+            theta=theta_bucket,
+            length=self._kin._mech.bucket_link.length_m,
+            com_offset=self._kin._mech.bucket_link.com_offset_m,
+        )
+
+        tip_x_2d, tip_z = bucket_pose.tip_xy
+        c = math.cos(swing_angle_rad)
+        s = math.sin(swing_angle_rad)
+        tip_x_3d = tip_x_2d * c
+        tip_y_3d = tip_x_2d * s
+
+        return ExcavatorKinematicState(
+            swing_angle_rad=float(swing_angle_rad),
+            boom=boom_pose,
+            arm=arm_pose,
+            bucket=bucket_pose,
+            bucket_tip_xyz=(float(tip_x_3d), float(tip_y_3d), float(tip_z)),
+        )
