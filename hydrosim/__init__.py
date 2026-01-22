@@ -1,5 +1,13 @@
-from .config import SystemConfig
-from .generator import DatasetGenerator, GeneratorSettings
-from .physics import HydraulicModel
-from .state import State
-from .faults import FaultConfig
+"""hydrosim package.
+
+Важно: пакет не должен иметь побочных эффектов при импорте.
+Поэтому здесь нет eager-import'ов тяжёлых модулей (генератор/физика/конфиги).
+
+Импортируй нужное напрямую:
+- from hydrosim.physics import HydraulicModel
+- from hydrosim.config import SystemConfig
+"""
+
+from __future__ import annotations
+
+__all__: list[str] = []
