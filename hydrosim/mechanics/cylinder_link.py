@@ -8,14 +8,24 @@
 - плоская (2D) геометрия в плоскости XZ;
 - точки крепления заданы в метрах;
 - цилиндр прикладывает силу вдоль оси AB (A — база, B — точка на звене).
+
+Практика для симуляции:
+- У решения по длине цилиндра часто есть две ветки ("локоть вверх/вниз").
+- Если ветку выбирать только по |θ| или близости к θprev в ГСК,
+  возможны скачки при движении родительского звена (повороты всей кинематической цепочки).
+- Поэтому для устойчивости предусмотрен API `solve_angle_with_branch(..., branch_prev=...)`,
+  где `branch_prev` — инвариантное обозначение ветки (+1/-1), которое можно хранить в состоянии.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Tuple
+from typing import Literal, Tuple
 
 import numpy as np
+
+
+BranchSign = Literal[-1, 1]
 
 
 @dataclass(frozen=True)
@@ -41,32 +51,7 @@ class CylinderAttachment:
 
 
 class CylinderLinkMechanism:
-    """Решает кинематику и динамику механизма "цилиндр-звено".
-
-    Физическая модель:
-    - Три точки: O (шарнир), A (крепление цилиндра на базе), B (крепление штока на звене)
-    - O фиксирована, B движется вместе со звеном при повороте на угол θ.
-    - Длина AB = l_cyl (длина цилиндра).
-    - По l_cyl нужно найти θ.
-
-    Геометрия:
-    - O: (x_O, z_O) — шарнир звена в ГСК
-    - A: (x_A, z_A) — крепление цилиндра в ГСК (фиксировано)
-    - B: B_local повернута на θ вокруг O
-      B_global = O + Rot(θ) * B_local
-    - AB: вектор от A к B, |AB| = l_cyl
-
-    Решение треугольника OAB:
-    - Известны: OA, OB (геометрия), AB (длина цилиндра)
-    - Найти: угол ∠AOB и, следовательно, θ
-    - Используем закон косинусов:
-      AB² = OA² + OB² - 2·OA·OB·cos(∠AOB)
-
-    Важно:
-    - У треугольника обычно есть 2 решения ("локоть вверх/вниз").
-    - Для стабильности (и чтобы тесты были однозначны) выбираем решение с
-      минимальным |θ| после нормализации в диапазон [-π, π].
-    """
+    """Решает кинематику и динамику механизма "цилиндр-звено"."""
 
     def __init__(self, att: CylinderAttachment) -> None:
         self._att = att
@@ -80,16 +65,45 @@ class CylinderLinkMechanism:
 
     @staticmethod
     def _wrap_pi(angle: float) -> float:
-        return float((angle + np.pi) % (2.0 * np.pi) - np.pi)
+        """Wrap angle to [-pi, pi] using +pi as canonical boundary value."""
+
+        out = float((angle + np.pi) % (2.0 * np.pi) - np.pi)
+        # Canonicalize boundary: represent both -pi and +pi as +pi.
+        if np.isclose(out, -np.pi):
+            return float(np.pi)
+        return out
 
     def solve_angle(self, cyl_length_m: float) -> Tuple[float, float]:
-        """По текущей длине цилиндра вычислить угол звена и производную dθ/dl.
+        """Совместимый API: вернуть (theta_rad, dtheta_dl).
 
-        Возвращает:
-            (theta_rad, dtheta_dl)
+        Ветку выбирает канонически (минимальный |θ| после нормализации),
+        без использования предыдущего состояния.
+        """
+
+        theta, dtheta_dl, _branch = self.solve_angle_with_branch(cyl_length_m)
+        return float(theta), float(dtheta_dl)
+
+    def solve_angle_with_branch(
+        self,
+        cyl_length_m: float,
+        *,
+        branch_prev: BranchSign | None = None,
+        theta_prev_rad: float | None = None,
+    ) -> Tuple[float, float, BranchSign]:
+        """Решить угол и вернуть выбранную ветку.
+
+        Args:
+            cyl_length_m: длина цилиндра AB (м).
+            branch_prev: ветка на предыдущем шаге (+1/-1). Это инвариантно к
+                глобальному повороту механизма (движению родительского звена),
+                поэтому предпочтительнее для непрерывной симуляции.
+            theta_prev_rad: предыдущий θ в ГСК (опционально). Используется только
+                если branch_prev не задан.
+
+        Returns:
+            (theta_rad, dtheta_dl, branch_sign)
 
         Примечание:
-            dθ/dl вычисляется аналитически дифференцированием закона косинусов.
             В сингулярных случаях (sin(∠AOB) ≈ 0) возвращается dθ/dl = 0.0.
         """
 
@@ -110,7 +124,6 @@ class CylinderLinkMechanism:
         # Закон косинусов
         cos_aob = (OA * OA + OB * OB - AB * AB) / (2.0 * OA * OB)
         cos_aob = float(np.clip(cos_aob, -1.0, 1.0))
-
         aob = float(np.arccos(cos_aob))
 
         # Два решения: angle_OB_global = angle_OA ± ∠AOB
@@ -120,24 +133,45 @@ class CylinderLinkMechanism:
         theta_plus_n = self._wrap_pi(theta_plus)
         theta_minus_n = self._wrap_pi(theta_minus)
 
-        if abs(theta_minus_n) <= abs(theta_plus_n):
-            theta = theta_minus_n
-            sign = -1.0
-        else:
-            theta = theta_plus_n
-            sign = 1.0
+        def _dist_to_theta_prev(theta: float) -> float:
+            if theta_prev_rad is None:
+                return abs(theta)
+            return abs(self._wrap_pi(theta - float(theta_prev_rad)))
 
-        # dθ/dl = ± d(∠AOB)/d(AB)
-        # cos = (OA^2 + OB^2 - AB^2)/(2 OA OB)
-        # dcos/dAB = -AB/(OA OB)
-        # d(arccos(cos))/dAB = AB/(OA OB sin(∠AOB))
+        # Выбор ветки: 1) по branch_prev (инвариантно), 2) по theta_prev, 3) канонически
+        if branch_prev in (-1, 1):
+            if branch_prev == 1:
+                theta = theta_plus_n
+                branch: BranchSign = 1
+            else:
+                theta = theta_minus_n
+                branch = -1
+        elif theta_prev_rad is not None:
+            d_plus = _dist_to_theta_prev(theta_plus_n)
+            d_minus = _dist_to_theta_prev(theta_minus_n)
+            if d_minus <= d_plus:
+                theta = theta_minus_n
+                branch = -1
+            else:
+                theta = theta_plus_n
+                branch = 1
+        else:
+            if abs(theta_minus_n) <= abs(theta_plus_n):
+                theta = theta_minus_n
+                branch = -1
+            else:
+                theta = theta_plus_n
+                branch = 1
+
+        # Производная по длине цилиндра зависит от выбранной ветки
         sin_aob = float(np.sqrt(max(0.0, 1.0 - cos_aob * cos_aob)))
         if sin_aob < 1e-6:
             dtheta_dl = 0.0
         else:
-            dtheta_dl = sign * (AB / (OA * OB * sin_aob))
+            dtheta_base = AB / (OA * OB * sin_aob)
+            dtheta_dl = float(branch) * dtheta_base
 
-        return float(theta), float(dtheta_dl)
+        return float(theta), float(dtheta_dl), branch
 
     def cylinder_force_to_moment(self, cyl_length_m: float, force_N: float) -> float:
         """Преобразовать силу в цилиндре в момент относительно шарнира O.
