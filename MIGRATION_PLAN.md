@@ -182,7 +182,7 @@ git clone https://github.com/Shukik85/Simulator.git
 cd Simulator
 
 # Create Python environment
-python3.10 -m venv venv
+python3.14 -m venv venv
 source venv/bin/activate
 
 # Install deps
