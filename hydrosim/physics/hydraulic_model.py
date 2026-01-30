@@ -5,7 +5,7 @@ from typing import Dict, Tuple
 import math
 import numpy as np
 
-from ..config import SystemConfig
+from ..config.models import SystemConfig
 from ..state import State
 from ..faults import FaultConfig
 
