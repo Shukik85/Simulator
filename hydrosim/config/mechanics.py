@@ -1,143 +1,214 @@
-"""Механическая конфигурация экскаватора.
+"""Механическая конфигурация экскаватора (плоская 2D-модель).
 
-Содержит:
-- описание геометрии звеньев (boom, arm, bucket);
-- описание геометрии цилиндров;
-- расчётные свойства (момент инерции, центр масс).
+Этот модуль намеренно является data-only ("мёртвым" конфигом):
+- геометрия звеньев (длина, масса, положение центра масс);
+- геометрия гидроцилиндров (ход, минимальная длина, диаметры, точки крепления);
+- параметры поворотного механизма (swing) в упрощённом виде.
+
+Ключевое правило:
+- Команда золотника НЕ задаёт положение/длину цилиндра.
+  Положение/длина цилиндра — это состояние, получаемое из динамики
+  (поток -> скорость -> интегрирование), а не прямое отображение команды.
+
+Соглашение о координатах (2D):
+- каждая точка крепления задаётся в ЛОКАЛЬНОЙ СК тела (base/boom/arm/bucket);
+- кинематический модуль обязан уметь переводить эти точки в мировую СК
+  по текущим углам/позам звеньев;
+- длина цилиндра в момент времени = расстояние между двумя pin-точками
+  в мировой СК.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Tuple
+from typing import Dict, Tuple
+import math
+
+
+Vec2 = Tuple[float, float]
+
+
+def _is_finite(x: float) -> bool:
+    return math.isfinite(float(x))
+
+
+def _check_vec2(name: str, v: Vec2) -> None:
+    x, z = float(v[0]), float(v[1])
+    if not (_is_finite(x) and _is_finite(z)):
+        raise ValueError(f"{name} must contain finite numbers; got {v}")
 
 
 @dataclass(frozen=True)
 class LinkGeometry:
-    """Геометрия одного звена (boom / arm / bucket).
-
-    Атрибуты:
-        name: Имя звена ("boom", "arm", "bucket").
-        length_m: Длина звена по оси вращения (м).
-        mass_kg: Масса звена (кг).
-        com_ratio: Относительное положение центра масс вдоль длины (0..1).
-                   0.0 = в шарнире (proximal), 1.0 = на конце (distal).
-        cyl_attach_local: (x, z) точка крепления цилиндра в локальной системе звена (м).
-                          x — вдоль оси звена, z — перпендикулярно (поперёк).
-    """
+    """Геометрия и сосредоточенные массовые свойства звена (boom/arm/bucket)."""
 
     name: str
     length_m: float
     mass_kg: float
-    com_ratio: float = 0.4
-    cyl_attach_local: Tuple[float, float] = (0.0, 0.0)
+    com_ratio: float = 0.4  # 0..1 вдоль оси звена от шарнира к концу
 
     def __post_init__(self) -> None:
-        if self.length_m <= 0:
+        if self.length_m <= 0.0:
             raise ValueError("length_m must be > 0")
-        if self.mass_kg <= 0:
+        if self.mass_kg <= 0.0:
             raise ValueError("mass_kg must be > 0")
         if not (0.0 <= self.com_ratio <= 1.0):
             raise ValueError("com_ratio must be in [0, 1]")
 
     @property
     def com_offset_m(self) -> float:
-        """Положение центра масс вдоль оси звена от шарнира (м).
-
-        Формула:
-            com_offset = com_ratio * length_m
-        """
+        """Смещение центра масс вдоль оси звена от шарнира (м)."""
 
         return float(self.com_ratio * self.length_m)
 
     @property
-    def moment_of_inertia_pivot(self) -> float:
-        """Момент инерции стержня относительно проксимального шарнира (кг·м²).
+    def inertia_about_pivot_kg_m2(self) -> float:
+        """Приближённый момент инерции относительно шарнира (кг·м²).
 
-        Модель: тонкий однородный стержень массой m, длиной L.
-
-        Общая формула:
-            J = m * L² * (1/12 + com_ratio²)
+        Аппроксимация тонким стержнем:
+            J_pivot = m * (L^2/12 + r^2), где r = com_offset_m
         """
 
         m = float(self.mass_kg)
         L = float(self.length_m)
-        r = float(self.com_ratio)
-        return m * (L * L) * ((1.0 / 12.0) + (r * r))
+        r = float(self.com_offset_m)
+        return float(m * ((L * L) / 12.0 + r * r))
 
     def __repr__(self) -> str:
         return (
             f"LinkGeometry(name={self.name}, L={self.length_m}m, "
-            f"m={self.mass_kg}kg, J_pivot={self.moment_of_inertia_pivot:.1f} kg·m²)"
+            f"m={self.mass_kg}kg, J_pivot={self.inertia_about_pivot_kg_m2:.1f} kg·m²)"
         )
+
+
+@dataclass(frozen=True)
+class Attachment2D:
+    """Точка крепления (pin) на некотором теле, заданная в локальной СК тела."""
+
+    body: str
+    point_local: Vec2
+
+    def __post_init__(self) -> None:
+        if not self.body:
+            raise ValueError("body must be non-empty")
+        _check_vec2(f"{self.body}.point_local", self.point_local)
 
 
 @dataclass(frozen=True)
 class CylinderGeometry:
-    """Геометрия гидроцилиндра (boom / arm / bucket).
+    """Геометрия гидроцилиндра + крепления pin-to-pin.
 
-    Атрибуты:
-        name: Имя цилиндра ("boom_cyl", "arm_cyl", "bucket_cyl").
-        base_point_global: (x, z) точка крепления на базовом теле
-                           (платформа или предыдущее звено) в ГСК (м).
-        rod_attach_local: (x, z) крепление штока на текущем звене
-                          в ЛОКАЛЬНОЙ системе звена (м).
-        stroke_m: Полный ход штока (выдвижение) (м).
-        base_length_m: Длина цилиндра при 0% хода (полностью втянут) (м).
+    Параметры:
+        stroke_m: ход штока (м).
+        length_min_m: минимальная pin-to-pin длина (полностью втянут).
+        base_mount/rod_mount: точки крепления на двух телах.
+        bore/rod diameters: геометрия для расчёта площадей камер.
+
+    Важно:
+        Этот класс НЕ содержит динамики (трение, утечки, расходы).
     """
 
     name: str
-    base_point_global: Tuple[float, float]
-    rod_attach_local: Tuple[float, float]
+
     stroke_m: float
-    base_length_m: float
+    length_min_m: float
+
+    base_mount: Attachment2D
+    rod_mount: Attachment2D
+
+    bore_diameter_m: float
+    rod_diameter_m: float
 
     def __post_init__(self) -> None:
-        if self.stroke_m <= 0:
+        if self.stroke_m <= 0.0:
             raise ValueError("stroke_m must be > 0")
-        if self.base_length_m <= 0:
-            raise ValueError("base_length_m must be > 0")
-
-    @property
-    def length_min_m(self) -> float:
-        """Минимальная длина цилиндра (полностью втянут, 0% выдвижения)."""
-
-        return float(self.base_length_m)
+        if self.length_min_m <= 0.0:
+            raise ValueError("length_min_m must be > 0")
+        if self.bore_diameter_m <= 0.0:
+            raise ValueError("bore_diameter_m must be > 0")
+        if self.rod_diameter_m <= 0.0:
+            raise ValueError("rod_diameter_m must be > 0")
+        if self.rod_diameter_m >= self.bore_diameter_m:
+            raise ValueError("rod_diameter_m must be < bore_diameter_m")
 
     @property
     def length_max_m(self) -> float:
-        """Максимальная длина цилиндра (полностью выдвинут, 100% выдвижения)."""
+        return float(self.length_min_m + self.stroke_m)
 
-        return float(self.base_length_m + self.stroke_m)
+    def length_from_extension(self, x_m: float) -> float:
+        """Pin-to-pin длина как функция выдвижения штока x (м), x in [0, stroke]."""
 
-    def length_from_spool_position(self, spool_position: float) -> float:
-        """Вычислить длину цилиндра по позиции золотника распределителя.
+        x = float(x_m)
+        if x < 0.0:
+            x = 0.0
+        elif x > self.stroke_m:
+            x = self.stroke_m
+        return float(self.length_min_m + x)
 
-        Вход:
-            spool_position: float, от -1.0 (полностью втянут) до +1.0 (полностью выдвинут).
+    def extension_from_length(self, length_m: float) -> float:
+        """Выдвижение штока x (м) как функция pin-to-pin длины L."""
 
-        Выход:
-            float: длина цилиндра в м.
-        """
+        L = float(length_m)
+        if L <= self.length_min_m:
+            return 0.0
+        if L >= self.length_max_m:
+            return float(self.stroke_m)
+        return float(L - self.length_min_m)
 
-        u = float(spool_position)
-        # Безопасное насыщение диапазона.
-        u = max(-1.0, min(1.0, u))
+    @property
+    def area_head_m2(self) -> float:
+        """Площадь поршневой полости (м²)."""
 
-        # [-1, 1] -> [0, 1]
-        t = (u + 1.0) / 2.0
-        return self.length_min_m + t * (self.length_max_m - self.length_min_m)
+        d = float(self.bore_diameter_m)
+        return float(0.25 * math.pi * d * d)
+
+    @property
+    def area_rod_m2(self) -> float:
+        """Площадь штока (м²)."""
+
+        d = float(self.rod_diameter_m)
+        return float(0.25 * math.pi * d * d)
+
+    @property
+    def area_annulus_m2(self) -> float:
+        """Площадь штоковой полости (м²)."""
+
+        return float(max(1e-9, self.area_head_m2 - self.area_rod_m2))
 
     def __repr__(self) -> str:
         return (
-            f"CylinderGeometry(name={self.name}, "
-            f"L_min={self.length_min_m}m, L_max={self.length_max_m}m)"
+            f"CylinderGeometry(name={self.name}, Lmin={self.length_min_m}m, "
+            f"Lmax={self.length_max_m}m, stroke={self.stroke_m}m)"
         )
 
 
 @dataclass(frozen=True)
+class SwingMechanism:
+    """Упрощённые параметры поворотного механизма (swing)."""
+
+    inertia_kg_m2: float = 8000.0
+    gear_ratio: float = 50.0
+    motor_displacement_cc_rev: float = 35.0
+    coulomb_friction_nm: float = 200.0
+    viscous_damping_nm_s_rad: float = 80.0
+
+    def __post_init__(self) -> None:
+        if self.inertia_kg_m2 <= 0.0:
+            raise ValueError("inertia_kg_m2 must be > 0")
+        if self.gear_ratio <= 0.0:
+            raise ValueError("gear_ratio must be > 0")
+        if self.motor_displacement_cc_rev <= 0.0:
+            raise ValueError("motor_displacement_cc_rev must be > 0")
+
+    @property
+    def disp_m3_rad(self) -> float:
+        # cc/rev -> m3/rev, rev -> 2*pi rad
+        return float((self.motor_displacement_cc_rev * 1e-6) / (2.0 * math.pi))
+
+
+@dataclass(frozen=True)
 class MechanicsConfig:
-    """Собранная конфигурация всей механики экскаватора."""
+    """Полный механический конфиг (data-only)."""
 
     boom_link: LinkGeometry
     arm_link: LinkGeometry
@@ -147,66 +218,68 @@ class MechanicsConfig:
     arm_cyl: CylinderGeometry
     bucket_cyl: CylinderGeometry
 
+    swing: SwingMechanism = SwingMechanism()
+
     def __post_init__(self) -> None:
-        for link in (self.boom_link, self.arm_link, self.bucket_link):
-            x, _z = link.cyl_attach_local
-            if not (0.0 <= x <= link.length_m):
-                raise ValueError(
-                    f"{link.name}.cyl_attach_local x must be within [0, length_m]; "
-                    f"got x={x}, length_m={link.length_m}"
-                )
+        # Не навязываем ограничение вида "0 <= x <= length" для креплений:
+        # реальные кронштейны/рычажные механизмы (особенно ковш) могут давать
+        # точки вне "оси" звена. Здесь валидируем только согласованность имён тел.
+        link_names = {self.boom_link.name, self.arm_link.name, self.bucket_link.name}
 
-    def __repr__(self) -> str:
-        return (
-            "MechanicsConfig(\n"
-            f"  boom={self.boom_link}\n"
-            f"  arm={self.arm_link}\n"
-            f"  bucket={self.bucket_link}\n"
-            ")"
-        )
+        for cyl in (self.boom_cyl, self.arm_cyl, self.bucket_cyl):
+            if cyl.base_mount.body != "base" and cyl.base_mount.body not in link_names:
+                raise ValueError(f"{cyl.name}: unknown base_mount.body={cyl.base_mount.body}")
+            if cyl.rod_mount.body not in link_names:
+                raise ValueError(f"{cyl.name}: unknown rod_mount.body={cyl.rod_mount.body}")
 
+    def links(self) -> Dict[str, LinkGeometry]:
+        return {
+            self.boom_link.name: self.boom_link,
+            self.arm_link.name: self.arm_link,
+            self.bucket_link.name: self.bucket_link,
+        }
+
+    def cylinders(self) -> Dict[str, CylinderGeometry]:
+        return {
+            self.boom_cyl.name: self.boom_cyl,
+            self.arm_cyl.name: self.arm_cyl,
+            self.bucket_cyl.name: self.bucket_cyl,
+        }
+
+
+# Базовая конфигурация (числа близки к текущим дефолтам в проекте).
+# ВАЖНО: base_mount.body="base" подразумевает, что base-пин задан в базовой СК.
 
 DEFAULT_MECHANICS_CONFIG = MechanicsConfig(
-    boom_link=LinkGeometry(
-        name="boom",
-        length_m=5.0,
-        mass_kg=1200.0,
-        com_ratio=0.4,
-        cyl_attach_local=(4.0, 0.2),
-    ),
-    arm_link=LinkGeometry(
-        name="arm",
-        length_m=3.0,
-        mass_kg=800.0,
-        com_ratio=0.38,
-        cyl_attach_local=(2.5, 0.15),
-    ),
-    bucket_link=LinkGeometry(
-        name="bucket",
-        length_m=2.5,
-        mass_kg=600.0,
-        com_ratio=0.35,
-        cyl_attach_local=(1.8, 0.1),
-    ),
+    boom_link=LinkGeometry(name="boom", length_m=5.0, mass_kg=1200.0, com_ratio=0.4),
+    arm_link=LinkGeometry(name="arm", length_m=3.0, mass_kg=800.0, com_ratio=0.38),
+    bucket_link=LinkGeometry(name="bucket", length_m=2.5, mass_kg=600.0, com_ratio=0.35),
+
     boom_cyl=CylinderGeometry(
         name="boom_cyl",
-        base_point_global=(0.5, 0.0),
-        rod_attach_local=(4.2, 0.0),
         stroke_m=1.2,
-        base_length_m=1.8,
+        length_min_m=1.8,
+        bore_diameter_m=0.090,
+        rod_diameter_m=0.050,
+        base_mount=Attachment2D(body="base", point_local=(0.5, 0.0)),
+        rod_mount=Attachment2D(body="boom", point_local=(4.2, 0.0)),
     ),
     arm_cyl=CylinderGeometry(
         name="arm_cyl",
-        base_point_global=(4.0, 0.5),
-        rod_attach_local=(2.8, 0.0),
         stroke_m=0.9,
-        base_length_m=1.4,
+        length_min_m=1.4,
+        bore_diameter_m=0.080,
+        rod_diameter_m=0.045,
+        base_mount=Attachment2D(body="base", point_local=(4.0, 0.5)),
+        rod_mount=Attachment2D(body="arm", point_local=(2.8, 0.0)),
     ),
     bucket_cyl=CylinderGeometry(
         name="bucket_cyl",
-        base_point_global=(2.5, 0.3),
-        rod_attach_local=(2.0, 0.0),
         stroke_m=0.6,
-        base_length_m=1.0,
+        length_min_m=1.0,
+        bore_diameter_m=0.070,
+        rod_diameter_m=0.040,
+        base_mount=Attachment2D(body="base", point_local=(2.5, 0.3)),
+        rod_mount=Attachment2D(body="bucket", point_local=(2.0, 0.0)),
     ),
 )
