@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, Tuple
+from typing import Dict, Literal, Tuple
 import math
 
 
@@ -193,6 +193,11 @@ class SensorConfig:
 
 @dataclass(frozen=True)
 class SystemConfig:
+    # How limited pump flow is allocated across simultaneous operations.
+    # - "proportional": current behavior (uniform scaling)
+    # - "priority": weighted allocation (swing gets more share by default)
+    flow_sharing_mode: Literal["proportional", "priority"] = "proportional"
+
     fluid: FluidConfig = FluidConfig()
     pump: PumpConfig = PumpConfig()
     open_center: OpenCenterConfig = OpenCenterConfig()

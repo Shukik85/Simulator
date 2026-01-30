@@ -5,6 +5,7 @@ from typing import Dict, Tuple
 import math
 import numpy as np
 
+from .flow_sharing import allocate_flow, effective_command
 from ..config.models import SystemConfig
 from ..state import State
 from ..faults import FaultConfig
@@ -220,7 +221,7 @@ class HydraulicModel:
 
         # 2) предварительный расчёт запросов расхода (flow-sharing)
         qreq = {sec: self.req_flow_at_dp(sec, u.get(sec, 0.0), faults=faults) for sec in self.SECTIONS}
-        qalloc = self.allocate_flow_sharing(qreq, Qpump)
+        qalloc = allocate_flow(qreq, Qpump, mode=getattr(cfg, "flow_sharing_mode", "proportional"))
 
         # 3) прикидываем Ppump (решением баланса расходов) через бискекцию
         def Qout(P: float) -> float:
@@ -228,12 +229,7 @@ class HydraulicModel:
             # секции потребляют от насоса только входной расход (P->порт)
             for sec in self.SECTIONS:
                 uu = float(u.get(sec, 0.0))
-                # в этой модели мы не подменяем u на qalloc напрямую, но qalloc влияет через «эффективное u»
-                # чтобы сохранить физический смысл, сжимаем команду пропорционально выделенному расходу.
-                q0 = qreq[sec]
-                qa = qalloc[sec]
-                scale = 1.0 if abs(q0) < 1e-12 else min(1.0, abs(qa) / max(abs(q0), 1e-12))
-                u_eff = float(sign0(uu) * min(1.0, abs(uu) * scale))
+                u_eff = effective_command(uu, qreq[sec], qalloc[sec])
 
                 if sec == "swing":
                     QA, QB, Qpin = self.valve_flows("swing", u_eff, P, s.PswingA, s.PswingB, s.Ptank, faults)
@@ -273,10 +269,7 @@ class HydraulicModel:
         flows = {}
         for sec in self.SECTIONS:
             uu = float(u.get(sec, 0.0))
-            q0 = qreq[sec]
-            qa = qalloc[sec]
-            scale = 1.0 if abs(q0) < 1e-12 else min(1.0, abs(qa) / max(abs(q0), 1e-12))
-            u_eff = float(sign0(uu) * min(1.0, abs(uu) * scale))
+            u_eff = effective_command(uu, qreq[sec], qalloc[sec])
 
             if sec == "swing":
                 QA, QB, Qpin = self.valve_flows("swing", u_eff, Ppump, s.PswingA, s.PswingB, s.Ptank, faults)
