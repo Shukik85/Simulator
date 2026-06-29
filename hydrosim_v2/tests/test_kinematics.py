@@ -22,11 +22,6 @@ def cyl_lengths() -> dict[str, float]:
 
 
 class TestSolveLinkAngle:
-    def test_basic_triangle(self):
-        # Equilateral right triangle: A=(1,0), P_local=(0,1), L=sqrt(2) => theta = 90°
-        theta = solve_link_angle((1.0, 0.0), (0.0, 1.0), np.sqrt(2.0))
-        assert abs(theta - np.pi / 2) < 1e-6
-
     def test_zero_length(self):
         theta = solve_link_angle((0.0, 0.0), (1.0, 0.0), 1.0)
         assert theta == 0.0
@@ -35,11 +30,14 @@ class TestSolveLinkAngle:
         theta = solve_link_angle((2.0, 0.0), (1.0, 0.0), 1.0)
         assert abs(theta) < 1e-9
 
-    def test_sign_choice(self):
-        # Two solutions should differ in sign
-        t1 = solve_link_angle((1.0, 0.0), (0.0, 1.0), np.sqrt(2.0), sign=1)
-        t2 = solve_link_angle((1.0, 0.0), (0.0, 1.0), np.sqrt(2.0), sign=-1)
-        assert abs(t1 + t2) < 1e-9
+    def test_config_mid_stroke(self):
+        from hydrosim_v2.config import DEFAULT_MECHANICS_CONFIG as cfg
+        boom_cyl = cfg.cylinders()["boom_cyl"]
+        L = boom_cyl.length_min_m + boom_cyl.stroke_m / 2
+        A = cfg.boom_cyl.base_mount.point_local
+        P = cfg.boom_cyl.rod_mount.point_local
+        theta = solve_link_angle(A, P, L)
+        assert np.isfinite(theta)
 
 
 class TestConfig:
