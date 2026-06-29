@@ -77,11 +77,11 @@ class TestLSValveSection:
         assert valve.q_t == 0.0
 
     def test_positive_spool_opens_p_to_a(self, valve):
-        valve.step(0.5, 200e5, 0.0, 0.0, 0.0)
+        valve.step(0.5, 200e5, 0.0, 0.0)
         assert valve.q_a > 0
 
     def test_negative_spool_opens_p_to_b(self, valve):
-        valve.step(-0.5, 200e5, 0.0, 0.0, 0.0)
+        valve.step(-0.5, 200e5, 0.0, 0.0)
         assert valve.q_b > 0
 
 

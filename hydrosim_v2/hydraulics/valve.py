@@ -34,10 +34,10 @@ class LSValveSection:
         s_eff = float(np.clip(s_eff, 0.0, 1.0))
         return s_eff ** self.cfg.flow_exp
 
-    def step(self, spool_cmd: float, p_p: float, p_a: float, p_b: float, p_t: float) -> None:
+    def step(self, spool_cmd: float, p_p: float, p_a: float, p_b: float, rho: float = 850.0) -> None:
         self.spool = float(np.clip(spool_cmd, -1.0, 1.0))
         A = self._area(self.spool)
-        rho = 850.0
+        p_t = 0.0
         kv = self.k_v
 
         if self.spool >= 0:

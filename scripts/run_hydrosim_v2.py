@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-Hydrosim_v2 CLI entrypoint: запуск симуляции экскаватора
+Hydrosim_v2 CLI: forward-кинематика или генерация датасета с live-графиками.
 """
 import argparse
 import sys
@@ -10,30 +10,60 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from hydrosim_v2.config import DEFAULT_MECHANICS_CONFIG
+from hydrosim_v2.config import (
+    ExcavatorConfig, DEFAULT_MECHANICS_CONFIG, LSConfig,
+)
 from hydrosim_v2.kinematics import forward_kinematics
+from hydrosim_v2.data.generator import DatasetGenerator
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Hydrosim_v2: запуск forward-кинематики")
-    parser.add_argument("--boom", type=float, default=2.0, help="Длина стрелы (м)")
-    parser.add_argument("--arm", type=float, default=2.3, help="Длина рукояти (м)")
-    parser.add_argument("--bucket", type=float, default=1.8, help="Длина ковша (м)")
-    return parser.parse_args()
+    p = argparse.ArgumentParser(description="Hydrosim v2")
+    sp = p.add_subparsers(dest="mode", required=True)
+
+    fk = sp.add_parser("fk", help="Forward kinematics")
+    fk.add_argument("--boom", type=float, default=2.0)
+    fk.add_argument("--arm", type=float, default=2.3)
+    fk.add_argument("--bucket", type=float, default=1.8)
+
+    gen = sp.add_parser("generate", help="Generate dataset")
+    gen.add_argument("--cycles", type=int, default=200)
+    gen.add_argument("--out", type=str, default="out_dataset")
+    gen.add_argument("--no-plot", action="store_true", help="Disable live plotting")
+
+    return p.parse_args()
 
 
-def main():
-    args = parse_args()
+def cmd_fk(args):
     cyl_lengths = {
         "boom_cyl": args.boom,
         "arm_cyl": args.arm,
         "bucket_cyl": args.bucket,
     }
-    cfg = DEFAULT_MECHANICS_CONFIG
-    pts = forward_kinematics(cfg, cyl_lengths)
-    print("\nРезультаты forward-кинематики:")
+    pts = forward_kinematics(DEFAULT_MECHANICS_CONFIG, cyl_lengths)
+    print("\nForward kinematics:")
     for name, pos in pts.items():
         print(f"  {name}: {np.round(pos, 4)}")
+
+
+def cmd_generate(args):
+    cfg = ExcavatorConfig(mechanics=DEFAULT_MECHANICS_CONFIG, hydraulics=LSConfig())
+    gen = DatasetGenerator(
+        cfg,
+        out_dir=args.out,
+        n_cycles=args.cycles,
+        live_plot=not args.no_plot,
+    )
+    gen.run()
+
+
+def main():
+    args = parse_args()
+    if args.mode == "fk":
+        cmd_fk(args)
+    else:
+        cmd_generate(args)
+
 
 if __name__ == "__main__":
     main()
