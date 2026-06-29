@@ -1,0 +1,18 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "instructions": ["AGENTS.md"],
+  "agent": {
+    "mechanics": {
+      "description": "Специалист по кинематике и динамике механизмов экскаватора. Используй для расчётов положений звеньев, углов, усилий в гидроцилиндрах, 4-звенных механизмов.",
+      "mode": "subagent",
+      "model": "anthropic/claude-sonnet-4-6",
+      "permission": { "edit": "allow", "bash": "ask" }
+    },
+    "hydraulics": {
+      "description": "Специалист по гидравлическим системам: насосы, клапаны, гидроцилиндры, flow-sharing, тепловая модель. Используй для работы с hydromodel и физикой.",
+      "mode": "subagent",
+      "model": "anthropic/claude-sonnet-4-6",
+      "permission": { "edit": "allow", "bash": "ask" }
+    }
+  }
+}

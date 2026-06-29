@@ -1,0 +1,22 @@
+"""Logging setup: coloured console output."""
+import logging
+import sys
+
+
+def setup_logger(name: str = "hydrosim_v2", level: int = logging.INFO) -> logging.Logger:
+    logger = logging.getLogger(name)
+    if logger.handlers:
+        return logger
+    logger.setLevel(level)
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setLevel(level)
+    fmt = logging.Formatter(
+        "[%(levelname)s] %(name)s: %(message)s",
+        datefmt="%H:%M:%S",
+    )
+    handler.setFormatter(fmt)
+    logger.addHandler(handler)
+    return logger
+
+
+LOG = setup_logger()
