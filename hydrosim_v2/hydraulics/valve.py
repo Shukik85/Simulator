@@ -24,7 +24,8 @@ class LSValveSection:
     @property
     def k_v(self) -> float:
         dpp = self.cfg.delta_p_rated_bar * 1e5
-        return self.q_nom_m3_s / np.sqrt(dpp)
+        rho = 850.0
+        return self.q_nom_m3_s / np.sqrt(dpp / rho)
 
     def _area(self, s: float) -> float:
         db = self.cfg.deadband
@@ -32,13 +33,17 @@ class LSValveSection:
             return 0.0
         s_eff = (abs(s) - db) / (1.0 - db)
         s_eff = float(np.clip(s_eff, 0.0, 1.0))
-        return s_eff ** self.cfg.flow_exp
+        area = s_eff ** self.cfg.flow_exp
+        if abs(area) < 1e-12:
+            area = 0.0
+        return area
 
     def step(self, spool_cmd: float, p_p: float, p_a: float, p_b: float, rho: float = 850.0) -> None:
         self.spool = float(np.clip(spool_cmd, -1.0, 1.0))
         A = self._area(self.spool)
         p_t = 0.0
         kv = self.k_v
+        kv_drain = kv * self.cfg.drain_gain
 
         if self.spool >= 0:
             self.A_p = A
@@ -46,14 +51,14 @@ class LSValveSection:
             dp_pa = p_p - p_a
             self.q_p = 0.0 if abs(dp_pa) < 1e3 else kv * A * float(np.sign(dp_pa)) * float(np.sqrt(abs(dp_pa) / rho))
             dp_bt = p_b - p_t
-            self.q_t = 0.0 if abs(dp_bt) < 1e3 else kv * A * float(np.sign(dp_bt)) * float(np.sqrt(abs(dp_bt) / rho))
+            self.q_t = 0.0 if abs(dp_bt) < 1e3 else kv_drain * A * float(np.sign(dp_bt)) * float(np.sqrt(abs(dp_bt) / rho))
         else:
             self.A_p = A
             self.A_t = A
             dp_pb = p_p - p_b
             self.q_p = 0.0 if abs(dp_pb) < 1e3 else kv * A * float(np.sign(dp_pb)) * float(np.sqrt(abs(dp_pb) / rho))
             dp_at = p_a - p_t
-            self.q_t = 0.0 if abs(dp_at) < 1e3 else kv * A * float(np.sign(dp_at)) * float(np.sqrt(abs(dp_at) / rho))
+            self.q_t = 0.0 if abs(dp_at) < 1e3 else kv_drain * A * float(np.sign(dp_at)) * float(np.sqrt(abs(dp_at) / rho))
 
     @property
     def q_a(self) -> float:

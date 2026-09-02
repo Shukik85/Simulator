@@ -136,8 +136,11 @@ class LivePlotter:
         self.fig.canvas.draw_idle()
         self.fig.canvas.flush_events()
 
-    def set_cycle_info(self, cid: int, mode: str) -> None:
-        self.fig.suptitle(f"Hydrosim v2 — Cycle {cid} — {mode}", fontsize=14, fontweight="bold")
+    def set_cycle_info(self, cid: int, mode: str, extra: str | None = None) -> None:
+        title = f"Hydrosim v2 — Cycle {cid} — {mode}"
+        if extra:
+            title += f"  |  {extra}"
+        self.fig.suptitle(title, fontsize=14, fontweight="bold")
         self.fig.canvas.draw_idle()
 
     def close(self) -> None:

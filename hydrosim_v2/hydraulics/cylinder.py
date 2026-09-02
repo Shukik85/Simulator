@@ -48,20 +48,6 @@ class Cylinder:
         A = self.geo.area_annulus_m2
         return A * (self.geo.stroke_m - self.position) + self.dyn.dead_volume_m3
 
-    def step_mechanics(self, u: float) -> float:
-        m = self.dyn.mass_equiv
-        kd = self.dyn.visc_damping
-        fc = self.dyn.coulomb_friction
-        Aa = self.geo.area_piston_m2
-        Ab = self.geo.area_annulus_m2
-        Fa = self.p_a * Aa
-        Fb = self.p_b * Ab
-        Fhyd = Fa - Fb
-        ffriction = float(kd * self.velocity + fc * _sign_reg(self.velocity))
-        Fnet = Fhyd - ffriction + u
-        a = Fnet / m
-        return float(a)
-
     def step_flow(
         self,
         q_a: float,

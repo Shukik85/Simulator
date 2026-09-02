@@ -16,6 +16,7 @@ class LSPumpConfig:
     mech_eff_0: float = 0.92
     mech_eff_kp: float = 0.08
     case_leak_k: float = 2.0e-12
+    power_hp: float = 120.0
 
 
 @dataclass(frozen=True)
@@ -25,12 +26,16 @@ class LSValveSectionConfig:
     deadband: float = 0.02
     flow_exp: float = 1.0
     cd: float = 0.65
+    drain_gain: float = 5.0
+    spool_tau_s: float = 0.05
+    clamp_hyst: float = 0.05
+    anti_cav_v_makeup: float = 0.05
 
 
 @dataclass(frozen=True)
 class ReliefValveConfig:
     crack_bar: float = 300.0
-    gain_m3_s_per_bar: float = 1.0e-5
+    gain_m3_s_per_bar: float = 5.0e-5
     max_bar: float = 350.0
 
 

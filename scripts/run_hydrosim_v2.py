@@ -31,6 +31,9 @@ def parse_args():
     gen.add_argument("--out", type=str, default="out_dataset")
     gen.add_argument("--no-plot", action="store_true", help="Disable live plotting")
 
+    manual = sp.add_parser("manual", help="Manual control (numpad/arrows)")
+    manual.add_argument("--out", type=str, default=None, help="Optional HDF5 output dir")
+
     return p.parse_args()
 
 
@@ -57,10 +60,24 @@ def cmd_generate(args):
     gen.run()
 
 
+def cmd_manual(args):
+    cfg = ExcavatorConfig(mechanics=DEFAULT_MECHANICS_CONFIG, hydraulics=LSConfig())
+    out_dir = args.out or "out_manual"
+    gen = DatasetGenerator(
+        cfg,
+        out_dir=out_dir,
+        live_plot=True,
+        live_control=True,
+    )
+    gen.run_manual()
+
+
 def main():
     args = parse_args()
     if args.mode == "fk":
         cmd_fk(args)
+    elif args.mode == "manual":
+        cmd_manual(args)
     else:
         cmd_generate(args)
 

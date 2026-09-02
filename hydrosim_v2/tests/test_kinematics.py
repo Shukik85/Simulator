@@ -60,7 +60,7 @@ class TestForwardKinematics:
         expected = {
             "base", "boom_joint", "boom_tip", "arm_joint", "arm_tip",
             "bucket_joint", "bucket_tip", "bucket_tip_cutting_edge",
-            "bucket_com", "A_boom", "P_boom", "A_arm", "P_arm",
+            "bucket_com", "bucket_theta_rad", "A_boom", "P_boom", "A_arm", "P_arm",
         }
         assert set(pts.keys()) == expected
 
@@ -72,7 +72,10 @@ class TestForwardKinematics:
     def test_all_positions_finite(self, cfg, cyl_lengths):
         pts = forward_kinematics(cfg, cyl_lengths)
         for name, pos in pts.items():
-            assert all(np.isfinite(v) for v in pos), f"{name}: {pos}"
+            if name == "bucket_theta_rad":
+                assert np.isfinite(pos), f"{name}: {pos}"
+            else:
+                assert all(np.isfinite(v) for v in pos), f"{name}: {pos}"
 
     def test_boom_tip_x_positive(self, cfg, cyl_lengths):
         pts = forward_kinematics(cfg, cyl_lengths)

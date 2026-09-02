@@ -28,6 +28,14 @@ class SimState:
     q_pump: float = 0.0
     q_relief: float = 0.0
 
+    e_mech_in: float = 0.0
+    e_cyl: float = 0.0
+    e_valve_loss: float = 0.0
+    e_relief: float = 0.0
+    e_friction: float = 0.0
+    e_kin: float = 0.0
+    e_pot: float = 0.0
+
     def copy(self) -> SimState:
         return SimState(
             t=self.t,
@@ -40,4 +48,11 @@ class SimState:
             p_tank=self.p_tank,
             q_pump=self.q_pump,
             q_relief=self.q_relief,
+            e_mech_in=self.e_mech_in,
+            e_cyl=self.e_cyl,
+            e_valve_loss=self.e_valve_loss,
+            e_relief=self.e_relief,
+            e_friction=self.e_friction,
+            e_kin=self.e_kin,
+            e_pot=self.e_pot,
         )

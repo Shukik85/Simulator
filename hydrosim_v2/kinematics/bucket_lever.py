@@ -30,6 +30,19 @@ def _solve_triangle(
     return P1, P2
 
 
+def _pick_branch(
+    C: np.ndarray, E: np.ndarray, A: np.ndarray,
+    P1: Optional[np.ndarray], P2: Optional[np.ndarray],
+    L_cyl: float,
+) -> Optional[np.ndarray]:
+    candidates = [p for p in (P1, P2) if p is not None]
+    if not candidates:
+        return None
+    if len(candidates) == 1:
+        return candidates[0]
+    return min(candidates, key=lambda p: float(abs(np.linalg.norm(p - A) - L_cyl)))
+
+
 def bucket_cylinder_length(
     params: BucketLeverMechanismParams,
     theta_bucket: float,
@@ -51,8 +64,24 @@ def bucket_cylinder_length(
     if not candidates:
         return None
 
-    P_chosen = max(candidates, key=lambda p: float(p[1]))
+    CE = E - C
+    cross1 = float(CE[0] * (P1[1] - C[1]) - CE[1] * (P1[0] - C[0]))
+    P_chosen = P1 if cross1 > 0 else P2
     return float(np.linalg.norm(P_chosen - A))
+
+
+def _bisect(residual, a: float, b: float, n_iter: int = 80) -> float:
+    for _ in range(n_iter):
+        m = (a + b) * 0.5
+        fm = residual(m)
+        if fm == 0:
+            return m
+        fa = residual(a)
+        if fa * fm < 0:
+            b = m
+        else:
+            a = m
+    return (a + b) * 0.5
 
 
 def solve_bucket(
@@ -60,6 +89,7 @@ def solve_bucket(
     L_cyl: float,
     arm_angle_rad: float,
     arm_pivot_xy: tuple[float, float],
+    prev_theta: Optional[float] = None,
 ) -> Optional[dict[str, tuple[float, float]]]:
     L_cyl = float(L_cyl)
 
@@ -69,69 +99,69 @@ def solve_bucket(
     C = pivot + R_arm @ np.array(params.pivot_C)
     D = pivot + R_arm @ np.array(params.pivot_D)
 
-    theta_min, theta_max = -2 * np.pi / 3, 5 * np.pi / 6
-    _prev_P: list[Optional[np.ndarray]] = [None]
+    theta_min_full, theta_max_full = -2 * np.pi / 3, 5 * np.pi / 6
+
+    if prev_theta is not None:
+        margin = 0.8
+        theta_min = max(theta_min_full, prev_theta - margin)
+        theta_max = min(theta_max_full, prev_theta + margin)
+    else:
+        theta_min, theta_max = theta_min_full, theta_max_full
 
     def residual(theta: float) -> float:
         R_bucket = _rot2d(theta)
         E = D + R_bucket @ np.array(params.E_local)
         P1, P2 = _solve_triangle(C, E, params.lever_length_m, params.rod_length_m)
-        candidates = [p for p in (P1, P2) if p is not None]
-        if not candidates:
+        if P1 is None and P2 is None:
             return 1e9
-        if _prev_P[0] is not None:
-            Pchosen = min(candidates, key=lambda p: float(np.linalg.norm(p - _prev_P[0])))
+        if P1 is not None and P2 is not None:
+            CE = E - C
+            cross = float(CE[0] * (P1[1] - C[1]) - CE[1] * (P1[0] - C[0]))
+            P = P1 if cross > 0 else P2
         else:
-            Pchosen = candidates[0]
-        _prev_P[0] = Pchosen.copy()
-        return float(np.linalg.norm(Pchosen - A)) - L_cyl
+            P = P1 if P1 is not None else P2
+        return float(np.linalg.norm(P - A)) - L_cyl
 
     n_samples = 200
     thetas = np.linspace(theta_min, theta_max, n_samples)
     residuals = np.array([residual(t) for t in thetas])
 
-    bracket: Optional[tuple[float, float]] = None
+    candidates_theta: list[float] = []
+
     for i in range(n_samples - 1):
         if residuals[i] * residuals[i + 1] < 0:
-            bracket = (float(thetas[i]), float(thetas[i + 1]))
-            break
+            candidates_theta.append(_bisect(residual, float(thetas[i]), float(thetas[i + 1])))
+        elif abs(residuals[i]) < 1e-6:
+            candidates_theta.append(float(thetas[i]))
 
-    if bracket is None:
-        idx = int(np.argmin(np.abs(residuals)))
-        theta_best = float(thetas[idx])
-        P_best = _prev_P[0]
-        if P_best is None:
-            return None
+    if abs(residuals[-1]) < 1e-6:
+        candidates_theta.append(float(thetas[-1]))
+
+    if candidates_theta:
+        if prev_theta is not None:
+            best_theta = min(candidates_theta, key=lambda t: abs(t - prev_theta))
+        else:
+            best_theta = min(candidates_theta, key=lambda t: abs(residual(t)))
     else:
-        a, b = bracket
-        for _ in range(80):
-            m = (a + b) * 0.5
-            fm = residual(m)
-            if fm == 0:
-                a = b = m
-                break
-            fa = residual(a)
-            if fa * fm < 0:
-                b = m
-            else:
-                a = m
-        theta_best = (a + b) * 0.5
-        P_best = _prev_P[0]
-        if P_best is None:
-            return None
+        idx = int(np.argmin(np.abs(residuals)))
+        best_theta = float(thetas[idx])
 
-    R_bucket = _rot2d(theta_best)
+    R_bucket = _rot2d(best_theta)
     E = D + R_bucket @ np.array(params.E_local)
-    com = D + R_bucket @ np.array(params.E_local)
+    P1, P2 = _solve_triangle(C, E, params.lever_length_m, params.rod_length_m)
+    P_best = _pick_branch(C, E, A, P1, P2, L_cyl)
+    if P_best is None:
+        return None
+
     tip = D + R_bucket @ np.array(params.bucket_tip_local)
 
     return {
-        "theta_rad": theta_best,
+        "theta_rad": best_theta,
         "A": (float(A[0]), float(A[1])),
         "C": (float(C[0]), float(C[1])),
         "D": (float(D[0]), float(D[1])),
         "P": (float(P_best[0]), float(P_best[1])),
         "E": (float(E[0]), float(E[1])),
         "bucket_tip": (float(tip[0]), float(tip[1])),
-        "com": (float(com[0]), float(com[1])),
+        "com": (float(E[0]), float(E[1])),
     }

@@ -41,6 +41,7 @@ def _vec2(x: float, y: float) -> tuple[float, float]:
 def forward_kinematics(
     cfg: ExcavatorMechanicsConfig,
     cyl_lengths: Dict[str, float],
+    prev_bucket_theta: float | None = None,
 ) -> Dict[str, tuple[float, float]]:
     base = (0.0, 0.0)
     base_arr = np.array([0.0, 0.0])
@@ -69,7 +70,7 @@ def forward_kinematics(
         (float(A_prime[0]), float(A_prime[1])),
         (float(P_arm_local[0]), float(P_arm_local[1])),
         float(cyl_lengths["arm_cyl"]),
-        sign=1,
+        sign=-1,
     )
     R_arm = _rot2d(theta_arm)
     arm_tip = arm_joint + R_arm @ np.array([cfg.arm_link.length_m, 0.0])
@@ -80,6 +81,7 @@ def forward_kinematics(
         float(cyl_lengths["bucket_cyl"]),
         theta_arm,
         _vec2(float(arm_joint[0]), float(arm_joint[1])),
+        prev_theta=prev_bucket_theta,
     )
     if sol is None:
         raise RuntimeError(f"Cannot solve bucket kinematics for L_cyl={cyl_lengths['bucket_cyl']}")
@@ -94,6 +96,7 @@ def forward_kinematics(
         "bucket_tip": sol["E"],
         "bucket_tip_cutting_edge": sol["bucket_tip"],
         "bucket_com": sol["com"],
+        "bucket_theta_rad": sol["theta_rad"],
         "A_boom": A_boom_global,
         "P_boom": P_boom_global,
         "A_arm": _vec2(float(A_arm_absolute[0]), float(A_arm_absolute[1])),

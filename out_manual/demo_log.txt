@@ -1,0 +1,1 @@
+Manual control demo data generated. Use with visualization/plotter.py for replay.

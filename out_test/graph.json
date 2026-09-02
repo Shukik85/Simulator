@@ -1,0 +1,52 @@
+{
+  "nodes": [
+    {
+      "id": "pump",
+      "sensors": [
+        "p_pump",
+        "p_ls",
+        "q_pump",
+        "q_relief"
+      ]
+    },
+    {
+      "id": "boom_cyl",
+      "sensors": [
+        "p_boom_a",
+        "p_boom_b",
+        "x_boom"
+      ]
+    },
+    {
+      "id": "arm_cyl",
+      "sensors": [
+        "p_arm_a",
+        "p_arm_b",
+        "x_arm"
+      ]
+    },
+    {
+      "id": "bucket_cyl",
+      "sensors": [
+        "p_bucket_a",
+        "p_bucket_b",
+        "x_bucket"
+      ]
+    }
+  ],
+  "edges": [
+    [
+      "pump",
+      "boom_cyl"
+    ],
+    [
+      "pump",
+      "arm_cyl"
+    ],
+    [
+      "pump",
+      "bucket_cyl"
+    ]
+  ],
+  "edge_type": "hydraulic_supply"
+}
